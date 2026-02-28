@@ -3,7 +3,7 @@ name: ticktick
 description: Use TickTick Open API for task management (list, create, complete, delete tasks and projects). Enables daily planning and task capture via the TickTick CLI.
 metadata:
   {
-    openclaw: { emoji: "✅", requires: { bins: ["python3", "pip"], files: ["/home/mental/projects/ticktick-cli"] } }
+    openclaw: { emoji: "✅", requires: { bins: ["python3", "pip"], files: ["~/projects/ticktick-cli"] } }
   }
 ---
 
@@ -16,7 +16,7 @@ This skill enables the agent to interact with a user's TickTick account via the 
 Use the `exec` tool to run TickTick CLI commands:
 
 ```bash
-cd /home/mental/projects/ticktick-cli && . .venv/bin/activate && tt <command>
+cd ~/projects/ticktick-cli && . .venv/bin/activate && tt <command>
 ```
 
 Or if the package is installed globally or in PATH:
@@ -151,7 +151,7 @@ tt tasks create --project inbox --title "Call" --due "2026-03-01T15:00:00" --rem
 
 ## Notes
 
-- This skill assumes the TickTick CLI is installed at `/home/mental/projects/ticktick-cli`.
+- This skill assumes the TickTick CLI is installed at `~/projects/ticktick-cli`.
 - The virtual environment must be activated before running `tt` commands.
 - Tasks without a due date won't appear in `--today` or `--overdue` filters.
 - Use JSON output (`--json`) for programmatic parsing in automation flows.
