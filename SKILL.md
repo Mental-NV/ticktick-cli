@@ -93,6 +93,10 @@ tt tasks delete <task-id> --project <project-id-or-name>
 
 # Update a task
 tt tasks update <task-id> --project <project-id-or-name> --title "New title" --priority high
+
+# Convert a task into a NOTE (creates a NOTE copy; optionally deletes the original)
+tt tasks convert-to-note <task-id> --project <project-id-or-name>
+tt tasks convert-to-note <task-id> --project <project-id-or-name> --delete-old
 ```
 
 ## Reminder Syntax
@@ -153,5 +157,7 @@ tt tasks create --project inbox --title "Call" --due "2026-03-01T15:00:00" --rem
 
 - This skill assumes the TickTick CLI is installed at `~/projects/ticktick-cli`.
 - The virtual environment must be activated before running `tt` commands.
+- The underlying HTTP client includes basic retries for transient failures (timeouts / 429 / 5xx).
+- `tt tasks convert-to-note ...` writes a timestamped backup JSON to `~/.config/ticktick/backups` by default.
 - Tasks without a due date won't appear in `--today` or `--overdue` filters.
 - Use JSON output (`--json`) for programmatic parsing in automation flows.

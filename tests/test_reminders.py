@@ -1,6 +1,6 @@
 import unittest
 
-from ticktick_openapi_cli.reminders import parse_reminders
+from ticktick_cli.reminders import parse_reminders
 
 
 class TestReminders(unittest.TestCase):

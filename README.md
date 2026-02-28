@@ -116,6 +116,18 @@ tt tasks update TASK_ID --project PROJECT_ID --title "Updated title" --remind 10
 tt tasks update TASK_ID --project PROJECT_ID --remind "TRIGGER:-PT10M"
 ```
 
+Convert a task to a NOTE item (copy title/content/desc, keep original by default):
+
+```bash
+# Create NOTE copy and keep original
+tt tasks convert-to-note TASK_ID --project PROJECT_ID
+
+# Create NOTE copy and delete original
+tt tasks convert-to-note TASK_ID --project PROJECT_ID --delete-old
+
+# Backups are saved with timestamps under ~/.config/ticktick/backups
+```
+
 ## Notes
 
 - Tokens are stored as JSON at `TICKTICK_TOKEN_PATH`.

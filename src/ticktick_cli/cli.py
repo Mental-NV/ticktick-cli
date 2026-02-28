@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -268,3 +269,86 @@ def tasks_update(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
     print(json.dumps(updated, indent=2))
+
+
+@tasks_app.command("convert-to-note")
+def tasks_convert_to_note(
+    task_id: str = typer.Argument(..., help="Task ID to convert"),
+    project: str = typer.Option(..., "--project", help="Project ID (or 'inbox')"),
+    delete_old: bool = typer.Option(
+        False,
+        "--delete-old",
+        help="Delete the original task after creating the NOTE copy",
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompts"),
+    backup_dir: str = typer.Option(
+        "~/.config/ticktick/backups",
+        "--backup-dir",
+        help="Directory to store JSON backups with timestamps",
+    ),
+) -> None:
+    """Create a NOTE item with the same title/content/desc/tags, optionally delete the original task."""
+
+    client = _client()
+
+    try:
+        data = client.get_project_data(project)
+    except UnauthorizedError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    tasks: list[dict] = data.get("tasks", [])
+    src = next((t for t in tasks if t.get("id") == task_id), None)
+    if not src:
+        console.print(f"[red]Task not found:[/red] {task_id} (project={project})")
+        raise typer.Exit(code=1)
+
+    if str(src.get("kind", "")).upper() == "NOTE":
+        print("Task is already a NOTE. Nothing to do.")
+        print(json.dumps(src, indent=2))
+        raise typer.Exit(code=0)
+
+    payload = {
+        "projectId": project,
+        "title": src.get("title") or "",
+        "content": src.get("content") or "",
+        "desc": src.get("desc") or "",
+        "tags": src.get("tags") or [],
+        "kind": "NOTE",
+    }
+
+    try:
+        created = client.create_task(payload)
+    except UnauthorizedError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    # Backup (source + created) with timestamp
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = Path(backup_dir).expanduser() / f"convert-to-note-{task_id}-{ts}.json"
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    backup_doc = {
+        "timestamp": ts,
+        "project": project,
+        "taskId": task_id,
+        "createdId": created.get("id"),
+        "source": src,
+        "created": created,
+    }
+    backup_path.write_text(json.dumps(backup_doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print("Created NOTE copy:")
+    print(json.dumps(created, indent=2))
+    print(f"Backup saved: {backup_path}")
+
+    if delete_old:
+        if not yes:
+            confirmed = typer.confirm(f"Delete original task {task_id} in project {project}?")
+            if not confirmed:
+                raise typer.Exit(code=0)
+        try:
+            client.delete_task(project, task_id)
+        except UnauthorizedError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
+        print("Original task deleted.")

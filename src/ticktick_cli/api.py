@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import random
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +21,8 @@ class UnauthorizedError(RuntimeError):
 @dataclass
 class TickTickClient:
     settings: Settings
+    max_retries: int = 3
+    backoff_base_s: float = 0.5
 
     def _access_token(self) -> str:
         token_data = load_token(self.settings.token_path)
@@ -33,19 +37,51 @@ class TickTickClient:
             "Content-Type": "application/json",
         }
         url = f"{API_BASE_URL}{path}"
-        response = requests.request(
-            method,
-            url,
-            headers=headers,
-            data=json.dumps(json_body) if json_body is not None else None,
-            timeout=30,
-        )
-        if response.status_code == 401:
-            raise UnauthorizedError("Access token rejected. Run: tt auth login")
-        response.raise_for_status()
-        if response.text:
-            return response.json()
-        return None
+
+        retriable_status = {429, 500, 502, 503, 504}
+        last_exc: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = requests.request(
+                    method,
+                    url,
+                    headers=headers,
+                    data=json.dumps(json_body) if json_body is not None else None,
+                    timeout=30,
+                )
+            except requests.RequestException as exc:  # network / timeout
+                last_exc = exc
+                if attempt >= self.max_retries:
+                    raise
+                sleep_s = self.backoff_base_s * (2**attempt) + random.random() * 0.2
+                time.sleep(sleep_s)
+                continue
+
+            if response.status_code == 401:
+                raise UnauthorizedError("Access token rejected. Run: tt auth login")
+
+            if response.status_code in retriable_status and attempt < self.max_retries:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        sleep_s = float(retry_after)
+                    except ValueError:
+                        sleep_s = self.backoff_base_s * (2**attempt)
+                else:
+                    sleep_s = self.backoff_base_s * (2**attempt) + random.random() * 0.2
+                time.sleep(sleep_s)
+                continue
+
+            response.raise_for_status()
+            if response.text:
+                return response.json()
+            return None
+
+        # Should be unreachable
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Request failed after retries")
 
     def list_projects(self) -> list[dict]:
         return self.request("GET", "/project")

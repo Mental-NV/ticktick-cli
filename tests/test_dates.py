@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from ticktick_openapi_cli.dates import format_ticktick_datetime, parse_iso_datetime
+from ticktick_cli.dates import format_ticktick_datetime, parse_iso_datetime
 
 
 class TestDates(unittest.TestCase):
