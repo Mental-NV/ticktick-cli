@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tt = "ticktick_openapi_cli.cli:app"
+tt = "ticktick_cli.cli:app"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
