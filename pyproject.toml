@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticktick-openapi-cli"
+version = "0.1.0"
+description = "CLI and small library for TickTick Global Open API (OAuth2)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Your Name" }
+]
+dependencies = [
+  "requests>=2.31",
+  "typer>=0.12",
+  "rich>=13.7",
+  "python-dateutil>=2.9",
+]
+
+[project.scripts]
+tt = "ticktick_openapi_cli.cli:app"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

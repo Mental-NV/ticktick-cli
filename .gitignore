@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Packaging
+*.egg-info/
+.dist-info/
+dist/
+build/
+
+# Local config / secrets
+.ticktick_token.json
+*.token.json
