@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ticktick-openapi-cli"
+name = "ticktick-cli"
 version = "0.1.0"
 description = "CLI and small library for TickTick Global Open API (OAuth2)"
 readme = "README.md"

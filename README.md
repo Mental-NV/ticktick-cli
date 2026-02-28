@@ -1,4 +1,4 @@
-# ticktick-openapi-cli
+# ticktick-cli
 
 A Python 3.10+ CLI and small library for the TickTick Global Open API (OAuth2).
 
