@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,11 @@ def main() -> None:
 def _client() -> TickTickClient:
     settings = Settings.from_env()
     return TickTickClient(settings=settings)
+
+
+def _emit_json(payload: object) -> None:
+    json.dump(payload, sys.stdout, ensure_ascii=True, indent=2)
+    sys.stdout.write("\n")
 
 
 @auth_app.command("status")
@@ -87,7 +93,7 @@ def projects_list(json_out: bool = typer.Option(False, "--json", help="Output ra
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
     if json_out:
-        print(json.dumps(projects, indent=2))
+        _emit_json(projects)
         return
     table = Table(title="Projects")
     table.add_column("ID")
@@ -138,7 +144,7 @@ def tasks_list(
     tasks = filter_tasks_by_due(tasks, today=today, overdue=overdue, next_days=next_days)
 
     if json_out:
-        print(json.dumps(tasks, indent=2))
+        _emit_json(tasks)
         return
 
     table = Table(title="Tasks")
@@ -194,7 +200,7 @@ def tasks_create(
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
-    print(json.dumps(created, indent=2))
+    _emit_json(created)
 
 
 @tasks_app.command("complete")
@@ -268,7 +274,7 @@ def tasks_update(
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
-    print(json.dumps(updated, indent=2))
+    _emit_json(updated)
 
 
 @tasks_app.command("convert-to-note")
@@ -305,7 +311,7 @@ def tasks_convert_to_note(
 
     if str(src.get("kind", "")).upper() == "NOTE":
         print("Task is already a NOTE. Nothing to do.")
-        print(json.dumps(src, indent=2))
+        _emit_json(src)
         raise typer.Exit(code=0)
 
     payload = {
@@ -338,7 +344,7 @@ def tasks_convert_to_note(
     backup_path.write_text(json.dumps(backup_doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("Created NOTE copy:")
-    print(json.dumps(created, indent=2))
+    _emit_json(created)
     print(f"Backup saved: {backup_path}")
 
     if delete_old:
