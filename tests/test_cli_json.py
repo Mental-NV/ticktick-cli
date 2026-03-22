@@ -1,5 +1,7 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -21,10 +23,16 @@ class _DummyClient:
 class TestCliJsonOutput(unittest.TestCase):
     def setUp(self) -> None:
         self.runner = CliRunner()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.env = {
+            "TICKTICK_TOKEN_PATH": str(Path(self.temp_dir.name) / "token.json"),
+        }
 
     def test_projects_list_json_escapes_control_characters(self) -> None:
-        with patch("ticktick_cli.cli._client", return_value=_DummyClient()):
-            result = self.runner.invoke(app, ["projects", "list", "--json"])
+        with patch.dict("os.environ", self.env, clear=False):
+            with patch("ticktick_cli.cli.TickTickClient", return_value=_DummyClient()):
+                result = self.runner.invoke(app, ["projects", "list", "--json"])
 
         self.assertEqual(result.exit_code, 0, result.stdout)
         self.assertIn("\\u0000", result.stdout)

@@ -7,6 +7,7 @@ A Python 3.10+ CLI and small library for the TickTick Global Open API (OAuth2).
 - OAuth2 login via local callback server
 - Project list and task CRUD
 - Task listing with `--today`, `--overdue`, and `--next N` filters
+- Local JSON caches for read-heavy task and project lookups
 - JSON output for automation
 
 ## Setup (WSL)
@@ -46,6 +47,7 @@ Environment variables:
 - `TICKTICK_REDIRECT_URI` (default: `http://localhost:8000/callback`)
 - `TICKTICK_TOKEN_PATH` (default: `~/.config/ticktick/token.json`)
 - `TICKTICK_DEFAULT_TZ` (default: `Europe/Moscow`)
+- `TICKTICK_CACHE_TTL_SECONDS` (default: `300`)
 
 Example:
 
@@ -73,6 +75,18 @@ List projects:
 
 ```bash
 tt projects list
+```
+
+Refresh both caches explicitly:
+
+```bash
+tt cache refresh
+```
+
+Clear both caches explicitly:
+
+```bash
+tt cache clear
 ```
 
 List tasks:
@@ -131,6 +145,11 @@ tt tasks convert-to-note TASK_ID --project PROJECT_ID --delete-old
 ## Notes
 
 - Tokens are stored as JSON at `TICKTICK_TOKEN_PATH`.
+- Read-heavy commands use local JSON caches under `~/.config/ticktick/cache/`.
+- `~/.config/ticktick/cache/projects.json` stores project metadata for project listing and project-name to project-id resolution.
+- `~/.config/ticktick/cache/tasks.json` stores a short-lived task snapshot used by `tt tasks list ...`.
+- Default cache TTL is 5 minutes. A fresh cache is reused; a stale, missing, or corrupt cache falls back to direct API calls and is rebuilt on success.
+- Task mutations (`create`, `update`, `complete`, `delete`, `convert-to-note`) invalidate the task cache immediately.
 - If the API returns HTTP 401, re-run `tt auth login`.
 - Refresh tokens are stored if returned, but refresh flow is not implemented.
 

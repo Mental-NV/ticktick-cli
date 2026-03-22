@@ -4,7 +4,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich import print
@@ -13,15 +13,18 @@ from rich.table import Table
 
 from .api import TickTickClient, UnauthorizedError
 from .auth import delete_token, load_token, login
+from .cache import JsonFileCache
 from .config import Settings
 from .dates import filter_tasks_by_due, format_ticktick_datetime
 from .reminders import parse_reminders
 
 app = typer.Typer(help="TickTick Global Open API CLI")
 auth_app = typer.Typer(help="Authentication commands")
+cache_app = typer.Typer(help="Cache commands")
 projects_app = typer.Typer(help="Project commands")
 tasks_app = typer.Typer(help="Task commands")
 app.add_typer(auth_app, name="auth")
+app.add_typer(cache_app, name="cache")
 app.add_typer(projects_app, name="projects")
 app.add_typer(tasks_app, name="tasks")
 
@@ -36,6 +39,94 @@ def main() -> None:
 def _client() -> TickTickClient:
     settings = Settings.from_env()
     return TickTickClient(settings=settings)
+
+
+def _cache_handles(settings: Settings) -> tuple[JsonFileCache, JsonFileCache]:
+    return (
+        JsonFileCache(settings.projects_cache_path, settings.cache_ttl_seconds),
+        JsonFileCache(settings.tasks_cache_path, settings.cache_ttl_seconds),
+    )
+
+
+def _refresh_projects_cache(client: TickTickClient, settings: Settings) -> list[dict]:
+    projects = client.list_projects()
+    projects_cache, _ = _cache_handles(settings)
+    projects_cache.save(projects)
+    return projects
+
+
+def _get_projects(client: TickTickClient, settings: Settings) -> list[dict]:
+    projects_cache, _ = _cache_handles(settings)
+    projects = projects_cache.load()
+    if isinstance(projects, list):
+        return projects
+    return _refresh_projects_cache(client, settings)
+
+
+def _build_task_snapshot(client: TickTickClient, settings: Settings) -> dict[str, Any]:
+    projects = _refresh_projects_cache(client, settings)
+    tasks: list[dict] = []
+    project_names: dict[str, str] = {}
+    for project in projects:
+        pid = project.get("id")
+        if not pid:
+            continue
+        project_names[str(pid)] = str(project.get("name") or pid)
+        data = client.get_project_data(str(pid))
+        tasks.extend(data.get("tasks", []))
+    snapshot = {"tasks": tasks, "project_names": project_names}
+    _, tasks_cache = _cache_handles(settings)
+    tasks_cache.save(snapshot)
+    return snapshot
+
+
+def _get_task_snapshot(client: TickTickClient, settings: Settings) -> dict[str, Any]:
+    _, tasks_cache = _cache_handles(settings)
+    snapshot = tasks_cache.load()
+    if (
+        isinstance(snapshot, dict)
+        and isinstance(snapshot.get("tasks"), list)
+        and isinstance(snapshot.get("project_names"), dict)
+    ):
+        return snapshot
+    return _build_task_snapshot(client, settings)
+
+
+def _invalidate_task_cache(settings: Settings) -> None:
+    _, tasks_cache = _cache_handles(settings)
+    tasks_cache.clear()
+
+
+def _project_matches(project: dict[str, Any], value: str) -> bool:
+    project_id = str(project.get("id") or "")
+    project_name = str(project.get("name") or "")
+    needle = value.strip().casefold()
+    return project_id == value or project_id.casefold() == needle or project_name.casefold() == needle
+
+
+def _resolve_project_id_from_names(project_names: dict[str, str], value: str) -> str:
+    needle = value.strip().casefold()
+    for project_id, project_name in project_names.items():
+        if project_id == value or project_id.casefold() == needle or str(project_name).casefold() == needle:
+            return project_id
+    return value
+
+
+def _resolve_project_id(client: TickTickClient, settings: Settings, value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    projects_cache, _ = _cache_handles(settings)
+    cached_projects = projects_cache.load()
+    if isinstance(cached_projects, list):
+        match = next((project for project in cached_projects if _project_matches(project, value)), None)
+        if match and match.get("id"):
+            return str(match["id"])
+
+    projects = _refresh_projects_cache(client, settings)
+    match = next((project for project in projects if _project_matches(project, value)), None)
+    if match and match.get("id"):
+        return str(match["id"])
+    return value
 
 
 def _emit_json(payload: object) -> None:
@@ -84,11 +175,33 @@ def auth_logout() -> None:
         print("No token found.")
 
 
+@cache_app.command("clear")
+def cache_clear() -> None:
+    settings = Settings.from_env()
+    projects_cache, tasks_cache = _cache_handles(settings)
+    projects_cache.clear()
+    tasks_cache.clear()
+    print("Cache cleared.")
+
+
+@cache_app.command("refresh")
+def cache_refresh() -> None:
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
+    try:
+        _build_task_snapshot(client, settings)
+    except UnauthorizedError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    print("Cache refreshed.")
+
+
 @projects_app.command("list")
 def projects_list(json_out: bool = typer.Option(False, "--json", help="Output raw JSON")) -> None:
-    client = _client()
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
     try:
-        projects = client.list_projects()
+        projects = _get_projects(client, settings)
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -108,21 +221,19 @@ def projects_list(json_out: bool = typer.Option(False, "--json", help="Output ra
     console.print(table)
 
 
-def _collect_tasks(client: TickTickClient, project_id: Optional[str]) -> tuple[list[dict], dict[str, str]]:
-    projects = []
-    if project_id:
-        projects = [{"id": project_id, "name": project_id}]
-    else:
-        projects = client.list_projects()
-    tasks: list[dict] = []
-    project_names: dict[str, str] = {}
-    for project in projects:
-        pid = project.get("id")
-        if not pid:
-            continue
-        project_names[pid] = project.get("name") or pid
-        data = client.get_project_data(pid)
-        tasks.extend(data.get("tasks", []))
+def _collect_tasks(
+    client: TickTickClient,
+    settings: Settings,
+    project_id: Optional[str],
+) -> tuple[list[dict], dict[str, str]]:
+    snapshot = _get_task_snapshot(client, settings)
+    tasks = snapshot["tasks"]
+    project_names = snapshot["project_names"]
+    resolved_project_id = (
+        _resolve_project_id_from_names(project_names, project_id) if project_id else project_id
+    )
+    if resolved_project_id:
+        tasks = [task for task in tasks if str(task.get("projectId") or "") == resolved_project_id]
     return tasks, project_names
 
 
@@ -131,12 +242,13 @@ def tasks_list(
     today: bool = typer.Option(False, "--today", help="Tasks due today"),
     overdue: bool = typer.Option(False, "--overdue", help="Tasks overdue"),
     next_days: Optional[int] = typer.Option(None, "--next", help="Tasks due in next N days"),
-    project: Optional[str] = typer.Option(None, "--project", help="Project ID"),
+    project: Optional[str] = typer.Option(None, "--project", help="Project ID or name"),
     json_out: bool = typer.Option(False, "--json", help="Output raw JSON"),
 ) -> None:
-    client = _client()
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
     try:
-        tasks, project_names = _collect_tasks(client, project)
+        tasks, project_names = _collect_tasks(client, settings, project)
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -167,7 +279,7 @@ def tasks_list(
 
 @tasks_app.command("create")
 def tasks_create(
-    project: str = typer.Option(..., "--project", help="Project ID"),
+    project: str = typer.Option(..., "--project", help="Project ID or name"),
     title: str = typer.Option(..., "--title", help="Task title"),
     content: Optional[str] = typer.Option(None, "--content", help="Task content"),
     due: Optional[str] = typer.Option(None, "--due", help="Due date (ISO8601)"),
@@ -177,7 +289,8 @@ def tasks_create(
 ) -> None:
     settings = Settings.from_env()
     client = TickTickClient(settings=settings)
-    payload: dict = {"projectId": project, "title": title}
+    project_id = _resolve_project_id(client, settings, project) or project
+    payload: dict = {"projectId": project_id, "title": title}
     if content:
         payload["content"] = content
     tz_effective = tz or settings.default_tz
@@ -200,46 +313,53 @@ def tasks_create(
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
+    _invalidate_task_cache(settings)
     _emit_json(created)
 
 
 @tasks_app.command("complete")
 def tasks_complete(
     task_id: str = typer.Argument(..., help="Task ID"),
-    project: str = typer.Option(..., "--project", help="Project ID"),
+    project: str = typer.Option(..., "--project", help="Project ID or name"),
 ) -> None:
-    client = _client()
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
+    project_id = _resolve_project_id(client, settings, project) or project
     try:
-        client.complete_task(project, task_id)
+        client.complete_task(project_id, task_id)
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
+    _invalidate_task_cache(settings)
     print("Task completed.")
 
 
 @tasks_app.command("delete")
 def tasks_delete(
     task_id: str = typer.Argument(..., help="Task ID"),
-    project: str = typer.Option(..., "--project", help="Project ID"),
+    project: str = typer.Option(..., "--project", help="Project ID or name"),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation"),
 ) -> None:
     if not yes:
         confirmed = typer.confirm(f"Delete task {task_id} in project {project}?")
         if not confirmed:
             raise typer.Exit(code=0)
-    client = _client()
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
+    project_id = _resolve_project_id(client, settings, project) or project
     try:
-        client.delete_task(project, task_id)
+        client.delete_task(project_id, task_id)
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
+    _invalidate_task_cache(settings)
     print("Task deleted.")
 
 
 @tasks_app.command("update")
 def tasks_update(
     task_id: str = typer.Argument(..., help="Task ID"),
-    project: str = typer.Option(..., "--project", help="Project ID"),
+    project: str = typer.Option(..., "--project", help="Project ID or name"),
     title: Optional[str] = typer.Option(None, "--title", help="Task title"),
     content: Optional[str] = typer.Option(None, "--content", help="Task content"),
     due: Optional[str] = typer.Option(None, "--due", help="Due date (ISO8601)"),
@@ -249,7 +369,8 @@ def tasks_update(
 ) -> None:
     settings = Settings.from_env()
     client = TickTickClient(settings=settings)
-    payload: dict = {"id": task_id, "projectId": project}
+    project_id = _resolve_project_id(client, settings, project) or project
+    payload: dict = {"id": task_id, "projectId": project_id}
     if title:
         payload["title"] = title
     if content:
@@ -274,6 +395,7 @@ def tasks_update(
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
+    _invalidate_task_cache(settings)
     _emit_json(updated)
 
 
@@ -295,10 +417,12 @@ def tasks_convert_to_note(
 ) -> None:
     """Create a NOTE item with the same title/content/desc/tags, optionally delete the original task."""
 
-    client = _client()
+    settings = Settings.from_env()
+    client = TickTickClient(settings=settings)
+    project_id = _resolve_project_id(client, settings, project) or project
 
     try:
-        data = client.get_project_data(project)
+        data = client.get_project_data(project_id)
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -315,7 +439,7 @@ def tasks_convert_to_note(
         raise typer.Exit(code=0)
 
     payload = {
-        "projectId": project,
+        "projectId": project_id,
         "title": src.get("title") or "",
         "content": src.get("content") or "",
         "desc": src.get("desc") or "",
@@ -328,6 +452,7 @@ def tasks_convert_to_note(
     except UnauthorizedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
+    _invalidate_task_cache(settings)
 
     # Backup (source + created) with timestamp
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -353,8 +478,9 @@ def tasks_convert_to_note(
             if not confirmed:
                 raise typer.Exit(code=0)
         try:
-            client.delete_task(project, task_id)
+            client.delete_task(project_id, task_id)
         except UnauthorizedError as exc:
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
+        _invalidate_task_cache(settings)
         print("Original task deleted.")

@@ -34,6 +34,7 @@ The skill expects these environment variables (already configured on this system
 - `TICKTICK_REDIRECT_URI` — OAuth callback URL (default: http://localhost:8000/callback)
 
 Token is stored at `~/.config/ticktick/token.json` (no re-login needed unless expired).
+The CLI also keeps short-lived caches under `~/.config/ticktick/cache/`.
 
 ## Available Commands
 
@@ -58,6 +59,16 @@ tt projects list
 
 # List projects in JSON (for automation)
 tt projects list --json
+```
+
+### Cache
+
+```bash
+# Refresh both caches now
+tt cache refresh
+
+# Clear both caches
+tt cache clear
 ```
 
 ### Tasks
@@ -158,6 +169,10 @@ tt tasks create --project inbox --title "Call" --due "2026-03-01T15:00:00" --rem
 - This skill assumes the TickTick CLI is installed at `~/projects/ticktick-cli`.
 - The virtual environment must be activated before running `tt` commands.
 - The underlying HTTP client includes basic retries for transient failures (timeouts / 429 / 5xx).
+- `tt tasks list ...` reuses `~/.config/ticktick/cache/tasks.json` when it is fresh, with a default TTL of 5 minutes.
+- Project listing and project-name resolution reuse `~/.config/ticktick/cache/projects.json` when it is fresh.
+- Missing, stale, or corrupt cache files are treated as cache misses: the CLI falls back to the API and rewrites the cache on success.
+- Task mutations invalidate the task snapshot immediately so follow-up reads do not serve stale task data.
 - `tt tasks convert-to-note ...` writes a timestamped backup JSON to `~/.config/ticktick/backups` by default.
 - Tasks without a due date won't appear in `--today` or `--overdue` filters.
 - Use JSON output (`--json`) for programmatic parsing in automation flows.
