@@ -19,7 +19,7 @@ Use the `exec` tool to run TickTick CLI commands:
 cd ~/projects/ticktick-cli && . .venv/bin/activate && tt <command>
 ```
 
-Or if the package is installed globally or in PATH:
+If the CLI has been installed globally (for example with `pipx install ticktick-cli`), the `tt` command is available system-wide and you can run it directly without activating the virtualenv:
 ```bash
 tt <command>
 ```
@@ -167,7 +167,7 @@ tt tasks create --project inbox --title "Call" --due "2026-03-01T15:00:00" --rem
 ## Notes
 
 - This skill assumes the TickTick CLI is installed at `~/projects/ticktick-cli`.
-- The virtual environment must be activated before running `tt` commands.
+- The virtual environment must be activated before running `tt` commands unless the CLI was installed globally (via `pip install ticktick-cli` or `pipx install ticktick-cli`), in which case the `tt` command is already on your PATH.
 - The underlying HTTP client includes basic retries for transient failures (timeouts / 429 / 5xx).
 - `tt tasks list ...` reuses `~/.config/ticktick/cache/tasks.json` when it is fresh, with a default TTL of 5 minutes.
 - Project listing and project-name resolution reuse `~/.config/ticktick/cache/projects.json` when it is fresh.

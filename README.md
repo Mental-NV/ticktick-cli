@@ -32,6 +32,8 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+If you prefer a globally available `tt` command, install the package with `pip install ticktick-cli` (or via `pipx`). Once installed globally, you can run `tt` from any shell without activating the project venv.
+
 ## Register an App in TickTick Developer Center
 
 1. Go to the TickTick Developer Center and create a new app.
